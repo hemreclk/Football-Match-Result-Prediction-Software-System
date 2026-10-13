@@ -1,3 +1,7 @@
+# Application entry point for the football match result analysis tool.
+# This script loads match data, populates the SQLite database, and connects
+# the graphical interface to the filtering and export functions.
+
 import sqlite3
 import sys
 import pandas as pd
@@ -8,18 +12,20 @@ import glob
 import time
 
 
-
-
+# Scrape the latest fixture data before loading it into the database.
+# This step is executed once during application startup.
 ttl.mac_verileri()
 time.sleep(2)
 
 
+# Initialize the desktop application and UI.
 uygulama = QApplication(sys.argv)
 pencere = QMainWindow()
 ui = Ui_MainWindow()
 ui.setupUi(pencere)
 pencere.show()
 
+# Create a connection to the project database and clear old data before loading.
 baglanti = sqlite3.connect("footballveritabani.db")
 islem = baglanti.cursor()
 with baglanti as conn:
@@ -27,16 +33,15 @@ with baglanti as conn:
 baglanti.commit()
 
 
-
+# Load all CSV files into the SQLite table.
+# The function ensures the target table exists and appends the extracted rows.
 def veri_yaz ():
 
-    
     baglanti = sqlite3.connect("footballveritabani.db")
     islem = baglanti.cursor()
     with baglanti as conn:
         conn.execute("DELETE FROM mac_indeksleri3;")
     baglanti.commit()
-        
 
     islem.execute("""
         CREATE TABLE IF NOT EXISTS mac_indeksleri3 (
@@ -51,22 +56,19 @@ def veri_yaz ():
         )
     """)
 
-
-
+    # Collect all generated CSV files in the project root and import them.
     csv_files = glob.glob('*.csv')
-
 
     for csv_file in csv_files:
         print(f"İşleniyor: {csv_file}")
-        
-        df = pd.read_csv(csv_file)  
+
+        df = pd.read_csv(csv_file)
         df = df[['LeaugePlayed', 'Season', 'Date', 'HomeTeam', 'Score', 'AwayTeam']]
         print(df.head())
-        df.to_sql('mac_indeksleri3', baglanti, if_exists='append', index=False) 
+        df.to_sql('mac_indeksleri3', baglanti, if_exists='append', index=False)
 
 
-
-
+# Prepare the UI dropdowns with unique team, league, and season values.
 veri_yaz()
 
 
@@ -95,9 +97,7 @@ def get_all_Leauge_Played():
     return LeaugePlayed
 
 
-
-
-
+# Populate all filter dropdowns from the database content.
 def load_data_to_ui():
     ui.cmbHome.addItems(get_all_home_teams())
     ui.cmbAway.addItems(get_all_away_teams())
@@ -107,31 +107,25 @@ def load_data_to_ui():
 load_data_to_ui()
 
 
-
-
-
-
+# Display all records currently stored in the database.
 def show_all_results():
     ttl.mac_verileri()
     veri_yaz()
-    
-    try:
-        ui.tableWidget.setRowCount(0)  
 
-    
+    try:
+        ui.tableWidget.setRowCount(0)
+
         sorgu = "SELECT * FROM mac_indeksleri3"
         islem.execute(sorgu)
         kayitlar = islem.fetchall()
 
         if kayitlar:
-            
             ui.tableWidget.setColumnCount(len(kayitlar[0]))
             ui.tableWidget.setHorizontalHeaderLabels([
                 "id",  "LeaugePlayed", "Season", "Date", "HomeTeam",
                 "Score", "AwayTeam"
             ])
 
-           
             ui.tableWidget.setRowCount(len(kayitlar))
             for indexSatir, kayitNumarasi in enumerate(kayitlar):
                 for indexSutun, kayitSutun in enumerate(kayitNumarasi):
@@ -141,39 +135,34 @@ def show_all_results():
     except Exception as e:
         print(f"Genel hata: {e}")
 
+
+# Clear the visible data table and show a status message.
 def clear():
     try:
         ui.tableWidget.setRowCount(0)
-
         ui.statusbar.showMessage("Tablo ve filtreleme tercihleri temizlendi.", 3000)
     except Exception as e:
         print(f"Temizleme sırasında hata oluştu: {str(e)}")
 
 
+# Export the currently loaded database records to an Excel workbook.
 def download_as_csv():
     try:
-
-      
         sorgu = "SELECT * FROM mac_indeksleri3"
         islem.execute(sorgu)
         kayitlar = islem.fetchall()
 
         if kayitlar:
-         
             df = pd.DataFrame(kayitlar, columns=[
                 "id", "LeaugePlayed", "Season", "Date","HomeTeam","Score","AwayTeam"
             ])
 
-            
             print("Veritabanından alınan veriler (ilk 5 satır):")
             print(df.head())
 
-
-            # Verileri Excel dosyasına kaydet
+            # Save the table as an Excel workbook for further analytics or ML work.
             df.to_excel('mac_indeksleri3.xlsx', index=False, engine='openpyxl')
-
             ui.statusbar.showMessage("Veriler başarıyla 'mac_indeksleri3.xlsx' dosyasına kaydedildi.", 5000)
-
         else:
             ui.statusbar.showMessage("Kaydedilecek veri bulunamadı.", 5000)
     except sqlite3.Error as e:
@@ -181,6 +170,8 @@ def download_as_csv():
     except Exception as e:
         ui.statusbar.showMessage(f"Hata: {e}", 5000)
 
+
+# Handle the "all years" checkbox state to bypass the date filter when needed.
 def all_years_radio_button(self):
     if ui.All_Years_Button.isChecked():
             print('Tüm Yıllar seçildi')
@@ -188,28 +179,24 @@ def all_years_radio_button(self):
             print('Tüm Yıllar seçilmedi')
 
 
-
+# Build a dynamic SQL query from the selected filters in the user interface.
 def show_results():
     ttl.mac_verileri()
     veri_yaz()
-   
+
     clear()
     try:
-
-        
         query = "SELECT * FROM mac_indeksleri3 WHERE 1=1"
         filters = []
 
-
-        
-        selected_date = ui.dtDate.date().toString("dd.MM.yyyy") 
+        # Apply the chosen date filter unless the user selects all years.
+        selected_date = ui.dtDate.date().toString("dd.MM.yyyy")
         print(ui.All_Years_Button.isChecked())
         if not ui.All_Years_Button.isChecked():
             query += " AND Date = ?"
             filters.append(selected_date)
 
-
-
+        # Add league, season, home team, away team, and score filters.
         leaugePlayed = ui.cmbLeaugePlayed.currentText()
         if leaugePlayed != "All":
             query += " AND LeaugePlayed = ?"
@@ -228,9 +215,9 @@ def show_results():
         away = ui.cmbAway.currentText()
         if away != "All":
             query += " AND AwayTeam = ?"
-            filters.append(away)  
+            filters.append(away)
             print(query)
-            print(filters)  
+            print(filters)
 
         score = ui.lneScore.text().strip()
         if score :
@@ -238,34 +225,30 @@ def show_results():
            filters.append(score)
            print(query)
            print(filters)
-        
-        
 
         islem.execute(query, tuple(filters))
         kayitlar = islem.fetchall()
 
         if kayitlar:
-           
             ui.tableWidget.setColumnCount(len(kayitlar[0]))
             ui.tableWidget.setHorizontalHeaderLabels([
                 "id",  "LeaugePlayed", "Season", "Date", "HomeTeam",
                 "Score", "AwayTeam"
             ])
 
-           
             ui.tableWidget.setRowCount(len(kayitlar))
             for indexSatir, kayitNumarasi in enumerate(kayitlar):
                 for indexSutun, kayitSutun in enumerate(kayitNumarasi):
                     ui.tableWidget.setItem(indexSatir, indexSutun, QTableWidgetItem(str(kayitSutun)))
                     print(kayitSutun)
-            
+
     except sqlite3.Error as e:
         print(f"Veritabanı hatası show result: {e}")
     except Exception as e:
         print(f"Genel hata: {e}")
 
 
-
+# Connect buttons to the relevant handlers.
 ui.btnShowAll.clicked.connect(show_all_results)
 ui.btnShowR.clicked.connect(show_results)
 ui.btnClear.clicked.connect(clear)
@@ -273,5 +256,5 @@ ui.btnDownload.clicked.connect(download_as_csv)
 ui.All_Years_Button.clicked.connect(all_years_radio_button)
 
 
-
+# Start the Qt application loop.
 sys.exit(uygulama.exec_())
